@@ -1,11 +1,12 @@
-const sqlite3 = require('sqlite3').verbose();
+const Database = require('better-sqlite3');
 const path = require('path');
 
-const dbPath = path.resolve(__dirname, 'luarmor.db');
-const db = new sqlite3.Database(dbPath);
+// Render usa /tmp para arquivos temporários
+const dbPath = process.env.RENDER ? '/tmp/luarmor.db' : path.resolve(__dirname, 'luarmor.db');
+const db = new Database(dbPath);
 
-db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS keys (
+db.exec(`
+    CREATE TABLE IF NOT EXISTS keys (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         codigo TEXT UNIQUE NOT NULL,
         discord_id TEXT,
@@ -13,65 +14,74 @@ db.serialize(() => {
         expira_em TEXT NOT NULL,
         usado INTEGER DEFAULT 0,
         criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-    )`);
+    );
 
-    db.run(`CREATE TABLE IF NOT EXISTS whitelist (
+    CREATE TABLE IF NOT EXISTS whitelist (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         discord_id TEXT UNIQUE NOT NULL,
         expira_em TEXT NOT NULL,
         hwid TEXT,
         added_by TEXT,
         criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-    )`);
+    );
 
-    db.run(`CREATE TABLE IF NOT EXISTS logs (
+    CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         discord_id TEXT,
         acao TEXT,
         detalhes TEXT,
         criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-    )`);
+    );
+`);
 
-    console.log('✅ Banco de dados criado/verificado!');
-});
+console.log('✅ Banco de dados criado/verificado!');
 
 const dbFunctions = {
     salvarLog: (discord_id, acao, detalhes) => {
-        db.run(`INSERT INTO logs (discord_id, acao, detalhes) VALUES (?, ?, ?)`, [discord_id, acao, detalhes]);
+        const stmt = db.prepare(`INSERT INTO logs (discord_id, acao, detalhes) VALUES (?, ?, ?)`);
+        stmt.run(discord_id, acao, detalhes);
     },
     registrarHWID: (discord_id, hwid) => {
-        db.run(`UPDATE whitelist SET hwid = ? WHERE discord_id = ?`, [hwid, discord_id]);
+        const stmt = db.prepare(`UPDATE whitelist SET hwid = ? WHERE discord_id = ?`);
+        stmt.run(hwid, discord_id);
     },
-    verificarHWID: (discord_id, hwid, callback) => {
-        db.get(`SELECT * FROM whitelist WHERE discord_id = ? AND (hwid IS NULL OR hwid = ?) AND expira_em > datetime('now')`, [discord_id, hwid], callback);
+    verificarHWID: (discord_id, hwid) => {
+        const stmt = db.prepare(`SELECT * FROM whitelist WHERE discord_id = ? AND (hwid IS NULL OR hwid = ?) AND expira_em > datetime('now')`);
+        return stmt.get(discord_id, hwid);
     },
     resetarHWID: (discord_id) => {
-        db.run(`UPDATE whitelist SET hwid = NULL WHERE discord_id = ?`, [discord_id]);
+        const stmt = db.prepare(`UPDATE whitelist SET hwid = NULL WHERE discord_id = ?`);
+        stmt.run(discord_id);
     },
-    verificarKey: (codigo, callback) => {
-        db.get(`SELECT * FROM keys WHERE codigo = ? AND usado = 0 AND expira_em > datetime('now')`, [codigo], callback);
+    verificarKey: (codigo) => {
+        const stmt = db.prepare(`SELECT * FROM keys WHERE codigo = ? AND usado = 0 AND expira_em > datetime('now')`);
+        return stmt.get(codigo);
     },
-    usarKey: (codigo, discord_id, hwid, callback) => {
-        db.run(`UPDATE keys SET usado = 1, discord_id = ?, hwid = ? WHERE codigo = ?`, [discord_id, hwid, codigo], callback);
+    usarKey: (codigo, discord_id, hwid) => {
+        const stmt = db.prepare(`UPDATE keys SET usado = 1, discord_id = ?, hwid = ? WHERE codigo = ?`);
+        stmt.run(discord_id, hwid, codigo);
     },
-    addWhitelist: (discord_id, dias, added_by, callback) => {
+    addWhitelist: (discord_id, dias, added_by) => {
         const expira_em = new Date();
         expira_em.setDate(expira_em.getDate() + dias);
-        db.run(`INSERT OR REPLACE INTO whitelist (discord_id, expira_em, added_by) VALUES (?, ?, ?)`, [discord_id, expira_em.toISOString(), added_by], callback);
+        const stmt = db.prepare(`INSERT OR REPLACE INTO whitelist (discord_id, expira_em, added_by) VALUES (?, ?, ?)`);
+        stmt.run(discord_id, expira_em.toISOString(), added_by);
     },
-    verificarWhitelist: (discord_id, callback) => {
-        db.get(`SELECT * FROM whitelist WHERE discord_id = ? AND expira_em > datetime('now')`, [discord_id], callback);
+    verificarWhitelist: (discord_id) => {
+        const stmt = db.prepare(`SELECT * FROM whitelist WHERE discord_id = ? AND expira_em > datetime('now')`);
+        return stmt.get(discord_id);
     },
-    gerarKey: (discord_id, dias, callback) => {
+    gerarKey: (discord_id, dias) => {
         const codigo = 'LUA-' + Math.random().toString(36).substring(2, 10).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
         const expira_em = new Date();
         expira_em.setDate(expira_em.getDate() + dias);
-        db.run(`INSERT INTO keys (codigo, discord_id, expira_em) VALUES (?, ?, ?)`, [codigo, discord_id, expira_em.toISOString()], (err) => {
-            callback(err, codigo, expira_em);
-        });
+        const stmt = db.prepare(`INSERT INTO keys (codigo, discord_id, expira_em) VALUES (?, ?, ?)`);
+        stmt.run(codigo, discord_id, expira_em.toISOString());
+        return { codigo, expira_em };
     },
-    getStats: (discord_id, callback) => {
-        db.get(`SELECT * FROM whitelist WHERE discord_id = ?`, [discord_id], callback);
+    getStats: (discord_id) => {
+        const stmt = db.prepare(`SELECT * FROM whitelist WHERE discord_id = ?`);
+        return stmt.get(discord_id);
     }
 };
 

@@ -11,21 +11,20 @@ app.post('/api/validar', (req, res) => {
     const { key, hwid } = req.body;
     if (!key) return res.status(400).json({ erro: 'Key não fornecida' });
     
-    db.verificarKey(key, (err, keyData) => {
-        if (err || !keyData) return res.status(401).json({ valido: false, erro: 'Key inválida' });
-        
-        if (keyData.usado === 1) {
-            db.verificarWhitelist(keyData.discord_id, (err2, whitelist) => {
-                if (!whitelist) return res.status(401).json({ valido: false, erro: 'Acesso expirado' });
-                if (whitelist.hwid && whitelist.hwid !== hwid) {
-                    return res.status(401).json({ valido: false, erro: 'HWID não autorizado' });
-                }
-                res.json({ valido: true, expira_em: whitelist.expira_em });
-            });
-        } else {
-            res.json({ valido: true, mensagem: 'Key válida! Resgate no Discord.' });
+    const keyData = db.verificarKey(key);
+    
+    if (!keyData) return res.status(401).json({ valido: false, erro: 'Key inválida' });
+    
+    if (keyData.usado === 1) {
+        const whitelist = db.verificarWhitelist(keyData.discord_id);
+        if (!whitelist) return res.status(401).json({ valido: false, erro: 'Acesso expirado' });
+        if (whitelist.hwid && whitelist.hwid !== hwid) {
+            return res.status(401).json({ valido: false, erro: 'HWID não autorizado' });
         }
-    });
+        return res.json({ valido: true, expira_em: whitelist.expira_em });
+    }
+    
+    res.json({ valido: true, mensagem: 'Key válida! Resgate no Discord.' });
 });
 
 app.post('/api/registrar-hwid', (req, res) => {
@@ -36,21 +35,20 @@ app.post('/api/registrar-hwid', (req, res) => {
 });
 
 app.get('/api/status/:discord_id', (req, res) => {
-    db.verificarWhitelist(req.params.discord_id, (err, whitelist) => {
-        if (!whitelist) return res.json({ ativo: false });
-        res.json({ ativo: true, expira_em: whitelist.expira_em, hwid: whitelist.hwid || 'Não registrado' });
-    });
+    const whitelist = db.verificarWhitelist(req.params.discord_id);
+    if (!whitelist) return res.json({ ativo: false });
+    res.json({ ativo: true, expira_em: whitelist.expira_em, hwid: whitelist.hwid || 'Não registrado' });
 });
 
 app.get('/api/loader', (req, res) => {
     const { key } = req.query;
     if (!key) return res.status(400).send('Key não fornecida');
     
-    db.verificarKey(key, (err, keyData) => {
-        if (!keyData) return res.status(401).send('Key inválida');
-        const script = `print("✅ Script carregado!")`;
-        res.send(script);
-    });
+    const keyData = db.verificarKey(key);
+    if (!keyData) return res.status(401).send('Key inválida');
+    
+    const script = `print("✅ Script carregado!")`;
+    res.send(script);
 });
 
 const PORT = process.env.PORT || 3000;
