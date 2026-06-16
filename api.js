@@ -7,7 +7,17 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.post('/api/validar', (req, res) => {
+const API_KEY = 'LuarmorSecureKey2025@#';
+
+function auth(req, res, next) {
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey || apiKey !== API_KEY) {
+        return res.status(401).json({ erro: 'Não autorizado' });
+    }
+    next();
+}
+
+app.post('/api/validar', auth, (req, res) => {
     const { key, hwid } = req.body;
     if (!key) return res.status(400).json({ erro: 'Key não fornecida' });
     
@@ -27,7 +37,7 @@ app.post('/api/validar', (req, res) => {
     res.json({ valido: true, mensagem: 'Key válida! Resgate no Discord.' });
 });
 
-app.post('/api/registrar-hwid', (req, res) => {
+app.post('/api/registrar-hwid', auth, (req, res) => {
     const { discord_id, hwid } = req.body;
     if (!discord_id || !hwid) return res.status(400).json({ erro: 'Dados incompletos' });
     db.registrarHWID(discord_id, hwid);
